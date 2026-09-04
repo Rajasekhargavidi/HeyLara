@@ -5,6 +5,68 @@ moves JARVIS off the tiny local model onto a free, fast, capable cloud LLM
 (Groq), fixes a real voice-output bug, and replaces the fictional demo
 knowledge document with real content pulled from laravisionx.com.
 
+Repo: https://github.com/Rajasekhargavidi/HeyLara
+
+## Setting up on a new/second machine
+
+Only the *code* is in this repo. Two things are deliberately **not**
+committed (see `.gitignore`) because they're per-machine local state, not
+shared config:
+
+- **`.env`** — contains real secrets (API keys, tokens). Copy
+  `.env.example` to `.env` on each machine and fill in values there. If
+  you want the *same* Groq/LinkedIn credentials on a second machine,
+  copy your own `.env` file over some other secure channel (not git) —
+  never commit it.
+- **`jarvis.db`** — the local SQLite database (users, drafts, knowledge
+  chunks, everything). Each machine starts with its own fresh database
+  (auto-created and seeded with demo data on first run) unless you copy
+  the `jarvis.db` file over yourself. There's no automatic sync between
+  machines — if you need the same data everywhere, either copy this file
+  around manually or point every machine's `DATABASE_URL` at one shared
+  Postgres instance (see `docker-compose.yml`) instead of local SQLite.
+
+Steps on a new machine:
+
+```bash
+git clone https://github.com/Rajasekhargavidi/HeyLara.git jarvis
+cd jarvis
+cp .env.example .env   # then edit .env with your real keys
+pip install -r apps/api/requirements.txt
+pip install -r tests/requirements.txt   # optional, only for running tests
+uvicorn apps.api.main:app --port 8000
+```
+
+Also needed locally for the default `LLM_PROVIDER=ollama` fallback and for
+embeddings (used regardless of which chat LLM you pick):
+```bash
+ollama pull llama3.2:3b
+ollama pull nomic-embed-text
+```
+(Skip pulling the chat model entirely if you set `LLM_PROVIDER=groq` in
+`.env` — embeddings still need Ollama either way.)
+
+## Voice: wake-word session mode
+
+Saying "Hey Lara" once now starts a **session**, not a one-shot command:
+
+- After the greeting, JARVIS keeps listening continuously — no need to say
+  "Hey Lara" before every question
+- **Barge-in**: if you start talking while JARVIS is still speaking, it
+  stops mid-sentence and handles your new question immediately instead of
+  missing it (verified live via a simulated recognizer event while a
+  reply was speaking)
+- Saying "Hey Lara" again mid-session is treated as a check-in ("Still
+  here, Boss") rather than sent to the backend as a real question
+- After **3 minutes of silence**, the session ends automatically — JARVIS
+  announces it's going to sleep and requires the wake phrase again to
+  resume
+- Verified live end-to-end: entering a session, asking a follow-up with no
+  wake word, and the sleep transition all behave correctly in a simulated
+  test (this sandbox has no real microphone, so the underlying speech
+  *recognition accuracy* still needs verification on a real machine —
+  the state machine and control flow are what's been proven)
+
 ## What changed
 
 - **LLM provider abstraction** (`packages/config/llm_provider.py`): added
