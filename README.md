@@ -9,42 +9,25 @@ Repo: https://github.com/Rajasekhargavidi/HeyLara
 
 ## Setting up on a new/second machine
 
-Only the *code* is in this repo. Two things are deliberately **not**
-committed (see `.gitignore`) because they're per-machine local state, not
-shared config:
+**See [SETUP.md](SETUP.md) for full instructions.** Short version:
 
-- **`.env`** — contains real secrets (API keys, tokens). Copy
-  `.env.example` to `.env` on each machine and fill in values there. If
-  you want the *same* Groq/LinkedIn credentials on a second machine,
-  copy your own `.env` file over some other secure channel (not git) —
-  never commit it.
-- **`jarvis.db`** — the local SQLite database (users, drafts, knowledge
-  chunks, everything). Each machine starts with its own fresh database
-  (auto-created and seeded with demo data on first run) unless you copy
-  the `jarvis.db` file over yourself. There's no automatic sync between
-  machines — if you need the same data everywhere, either copy this file
-  around manually or point every machine's `DATABASE_URL` at one shared
-  Postgres instance (see `docker-compose.yml`) instead of local SQLite.
-
-Steps on a new machine:
-
-```bash
+```powershell
 git clone https://github.com/Rajasekhargavidi/HeyLara.git jarvis
 cd jarvis
-cp .env.example .env   # then edit .env with your real keys
-pip install -r apps/api/requirements.txt
-pip install -r tests/requirements.txt   # optional, only for running tests
-uvicorn apps.api.main:app --port 8000
+.\setup.ps1
 ```
 
-Also needed locally for the default `LLM_PROVIDER=ollama` fallback and for
-embeddings (used regardless of which chat LLM you pick):
-```bash
-ollama pull llama3.2:3b
-ollama pull nomic-embed-text
-```
-(Skip pulling the chat model entirely if you set `LLM_PROVIDER=groq` in
-`.env` — embeddings still need Ollama either way.)
+One script, no Docker needed — creates the virtual environment, installs
+dependencies, creates `.env` if missing, pulls the required Ollama
+models, and starts the server. Verified working end-to-end on a fresh
+setup. This is the recommended path, especially on corporate-managed
+laptops where Docker Desktop is commonly blocked by IT group policy (see
+SETUP.md for what that looks like and why Docker is a fallback, not the
+primary path, here).
+
+`.env` and `jarvis.db` are intentionally per-machine and never committed
+to git — SETUP.md covers what that means for keeping data/config in sync
+across machines.
 
 ## Voice: wake-word session mode
 

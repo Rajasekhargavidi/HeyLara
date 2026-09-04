@@ -9,6 +9,11 @@ services:
       - "5432:5432"
     volumes:
       - jarvis_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jarvis"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
@@ -22,17 +27,53 @@ services:
     volumes:
       - jarvis_ollama_data:/root/.ollama
 
+  # One-shot job: pulls the models JARVIS needs, then exits. Runs every
+  # `docker compose up` but is instant (a no-op) once already pulled —
+  # this is what makes "clone and run" work without any manual `ollama
+  # pull` step on a fresh machine.
+  ollama-init:
+    image: curlimages/curl:latest
+    depends_on:
+      - ollama
+    entrypoint: >
+      sh -c "
+      until curl -sf http://ollama:11434/api/tags > /dev/null; do echo waiting for ollama...; sleep 2; done;
+      curl -sf http://ollama:11434/api/pull -d '{\"model\":\"llama3.2:3b\"}' &&
+      curl -sf http://ollama:11434/api/pull -d '{\"model\":\"nomic-embed-text\"}'
+      "
+
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     ports:
       - "8000:8000"
+    environment:
+      # Safe, working-out-of-the-box defaults — no .env file required for a
+      # fresh clone. A real .env (see .env.example), if present, overrides
+      # these via the env_file entry below (e.g. to add a real Groq/LinkedIn
+      # key or switch LLM_PROVIDER to groq).
+      DATABASE_URL: postgresql://jarvis:jarvis@db:5432/jarvis
+      REDIS_URL: redis://redis:6379/0
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: llama3.2:3b
+      OLLAMA_EMBED_MODEL: nomic-embed-text
+      LLM_PROVIDER: ollama
+      JARVIS_MODE: demo
+      JWT_SECRET: change-me-in-local-env
+      WHATSAPP_WEBHOOK_VERIFY_TOKEN: change-me-in-local-env
     env_file:
-      - .env
+      # Optional — only applied if you've created .env from .env.example.
+      # Values here override the `environment:` defaults above.
+      - path: .env
+        required: false
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      ollama-init:
+        condition: service_completed_successfully
     volumes:
       - ./:/app
 
