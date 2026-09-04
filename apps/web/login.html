@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>JARVIS — Sign in</title>
+<style>
+  :root { --cyan: #00e0ff; --bg: #05070d; --bg-panel: #0a0f1a; --border: rgba(0,224,255,0.16); --text: #dff6ff; --text-dim: #6f8aa3; --red: #ff4d6d; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: radial-gradient(ellipse 900px 600px at 50% 30%, rgba(0,224,255,0.08), transparent 60%), var(--bg);
+    color: var(--text); margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center;
+  }
+  .brand-ring { width: 46px; height: 46px; border-radius: 50%; border: 2px solid var(--cyan); margin: 0 auto 18px; position: relative;
+    box-shadow: 0 0 20px rgba(0,224,255,0.5), inset 0 0 12px rgba(0,224,255,0.3); animation: spin 6s linear infinite; }
+  .brand-ring::after { content: ''; position: absolute; inset: 9px; border-radius: 50%; background: radial-gradient(circle, var(--cyan), transparent 70%); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; padding: 36px; width: 340px;
+    box-shadow: 0 0 40px rgba(0,224,255,0.05), 0 20px 60px rgba(0,0,0,0.5); text-align: center; }
+  .card h1 { font-size: 17px; margin: 0 0 4px; letter-spacing: 2px; color: var(--cyan); text-shadow: 0 0 8px rgba(0,224,255,0.5); }
+  .card p { color: var(--text-dim); font-size: 12.5px; margin: 0 0 22px; }
+  label { display: block; font-size: 11px; color: var(--text-dim); margin: 14px 0 5px; text-align: left; text-transform: uppercase; letter-spacing: .5px; }
+  input { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-family: inherit; }
+  input:focus { outline: none; border-color: rgba(0,224,255,0.5); box-shadow: 0 0 0 3px rgba(0,224,255,0.08); }
+  button {
+    margin-top: 22px; width: 100%; padding: 11px 16px; border-radius: 8px; cursor: pointer; font-size: 12.5px;
+    letter-spacing: 1px; text-transform: uppercase; font-weight: 700;
+    background: linear-gradient(180deg, rgba(0,224,255,0.28), rgba(0,224,255,0.14)); border: 1px solid rgba(0,224,255,0.4); color: var(--cyan);
+  }
+  button:hover { box-shadow: 0 0 16px rgba(0,224,255,0.3); }
+  .error { color: var(--red); font-size: 12.5px; margin-top: 12px; }
+  .demo { margin-top: 22px; font-size: 11px; color: var(--text-dim); line-height: 1.6; text-align: left; border-top: 1px solid var(--border); padding-top: 14px; }
+  .demo code { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand-ring"></div>
+  <h1>LARAVISIONX · JARVIS</h1>
+  <p>Sign in to continue</p>
+  <label>Email</label>
+  <input id="email" type="email" value="admin@laravisionx.com" />
+  <label>Password</label>
+  <input id="password" type="password" value="admin123" />
+  <button onclick="login()">Sign in</button>
+  <div id="error" class="error"></div>
+  <div class="demo">
+    Demo accounts (password = role + "123"):<br />
+    <code>admin@laravisionx.com</code> · <code>marketing@laravisionx.com</code><br />
+    <code>support@laravisionx.com</code> · <code>viewer@laravisionx.com</code>
+  </div>
+</div>
+<script>
+async function login() {
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  const errorEl = document.getElementById('error');
+  errorEl.textContent = '';
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    errorEl.textContent = 'Invalid email or password';
+    return;
+  }
+  const data = await res.json();
+  localStorage.setItem('jarvis_token', data.access_token);
+  localStorage.setItem('jarvis_role', data.role);
+  localStorage.setItem('jarvis_email', data.email);
+  window.location.href = '/dashboard.html';
+}
+document.getElementById('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
+</script>
+</body>
+</html>
