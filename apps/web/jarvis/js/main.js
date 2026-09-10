@@ -130,45 +130,114 @@ $('#input').addEventListener('input', () => {
   else setCoreState('idle', 'Awaiting your command.');
 });
 
-let speechRecognizer;
+// --- Voice input: click to activate, 3-minute session, auto-sleep on silence ---
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-$('#micBtn').addEventListener('click', () => {
+let speechRecognizer = null;
+let voiceSessionTimer = null;   // 3-minute auto-sleep timer
+let voiceCountdownInterval = null;
+const VOICE_SESSION_MS = 3 * 60 * 1000; // 3 minutes
+
+function voiceCountdownLabel(remainingMs) {
+  const s = Math.ceil(remainingMs / 1000);
+  const mm = String(Math.floor(s / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return `◉ Voice active ${mm}:${ss}`;
+}
+
+function stopVoiceSession(reason) {
+  if (speechRecognizer) { try { speechRecognizer.abort(); } catch (_) {} speechRecognizer = null; }
+  clearTimeout(voiceSessionTimer); voiceSessionTimer = null;
+  clearInterval(voiceCountdownInterval); voiceCountdownInterval = null;
+  $('#micBtn').classList.remove('recording');
+  $('#micBtn').textContent = '◉ Voice input';
+  $('#voiceUnsupported').textContent = reason || '';
+  if (!reason) setCoreState('idle', 'Voice session ended. Click to reactivate.');
+}
+
+function startListeningCycle() {
+  if (!speechRecognizer) return; // session was stopped
+  try { speechRecognizer.start(); } catch (_) {}
+}
+
+function startVoiceSession() {
   if (!SpeechRecognition) {
     $('#voiceUnsupported').textContent = 'Voice input is unavailable in this browser.';
     return;
   }
-  if (speechRecognizer) { speechRecognizer.stop(); return; }
   if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
     $('#voiceUnsupported').textContent = 'Voice input requires HTTPS or localhost.';
     return;
   }
+
+  // Build recognizer once per session; restart it on each onend cycle.
   speechRecognizer = new SpeechRecognition();
   speechRecognizer.lang = 'en-IN';
   speechRecognizer.interimResults = false;
   speechRecognizer.maxAlternatives = 1;
+  speechRecognizer.continuous = false; // restart manually so we control the loop
+
   speechRecognizer.onstart = () => {
     $('#micBtn').classList.add('recording');
     $('#voiceReplyToggle').checked = true;
-    setCoreState('listening', 'Listening…');
+    setCoreState('listening', 'Listening… Speak your command.');
+    $('#voiceUnsupported').textContent = '';
   };
+
   speechRecognizer.onresult = (event) => {
     const result = event.results[event.resultIndex] || event.results[event.results.length - 1];
     const transcript = result?.[0]?.transcript?.trim();
-    if (transcript) sendCommand(transcript, true);
+    if (transcript) {
+      // Reset the 3-minute idle timer on each spoken command.
+      clearTimeout(voiceSessionTimer);
+      voiceSessionTimer = setTimeout(() => stopVoiceSession('Voice session timed out after 3 minutes of no activity.'), VOICE_SESSION_MS);
+      sendCommand(transcript, true);
+    }
   };
+
   speechRecognizer.onerror = (event) => {
+    if (event.error === 'no-speech') {
+      // Silence — restart the cycle; session timer keeps ticking.
+      return;
+    }
     const errors = {
-      'not-allowed': 'Microphone permission was denied. Allow microphone access for localhost.',
-      'audio-capture': 'No microphone was found. Check the Windows input device.',
-      'network': 'The browser speech service needs internet access.',
-      'no-speech': 'No speech detected. Speak immediately after pressing the microphone button.',
+      'not-allowed': 'Microphone permission denied. Allow microphone access for localhost.',
+      'audio-capture': 'No microphone found. Check Windows input device.',
+      'network': 'Browser speech service needs internet access.',
     };
-    $('#voiceUnsupported').textContent = errors[event.error] || `Voice input error: ${event.error}`;
-    setCoreState('idle', 'Awaiting your command.');
+    stopVoiceSession(errors[event.error] || `Voice error: ${event.error}`);
   };
-  speechRecognizer.onend = () => { speechRecognizer = null; $('#micBtn').classList.remove('recording'); };
-  speechRecognizer.start();
+
+  speechRecognizer.onend = () => {
+    // Restart listening automatically unless the session was stopped.
+    if (speechRecognizer) {
+      setTimeout(startListeningCycle, 200);
+    }
+  };
+
+  // Start the 3-minute auto-sleep timer.
+  voiceSessionTimer = setTimeout(() => stopVoiceSession('Voice session timed out after 3 minutes of no activity.'), VOICE_SESSION_MS);
+
+  // Update button with live countdown every second.
+  const sessionStart = Date.now();
+  voiceCountdownInterval = setInterval(() => {
+    const remaining = VOICE_SESSION_MS - (Date.now() - sessionStart);
+    if (remaining <= 0) { clearInterval(voiceCountdownInterval); return; }
+    $('#micBtn').textContent = voiceCountdownLabel(remaining);
+  }, 1000);
+
+  $('#micBtn').classList.add('recording');
+  setCoreState('listening', 'Voice session active — waiting for your command…');
+  startListeningCycle();
+}
+
+$('#micBtn').addEventListener('click', () => {
+  if (speechRecognizer) {
+    stopVoiceSession('Voice session stopped.');
+  } else {
+    startVoiceSession();
+  }
 });
+
 if (!('speechSynthesis' in window)) $('#voiceReplyToggle').disabled = true;
 
 window.jarvisUniverse = new Universe($('#universe'));
