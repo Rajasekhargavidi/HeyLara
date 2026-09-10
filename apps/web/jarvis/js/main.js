@@ -15,6 +15,8 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 const role = localStorage.getItem('jarvis_role') || 'VIEWER';
 const email = localStorage.getItem('jarvis_email') || 'operator';
 const startedAt = Date.now();
+let voiceLang = 'en-IN'; // 'en-IN' or 'te-IN' — toggled by the language button
+let speechRecognizer = null;
 
 $('#whoami').textContent = `${email} · ${role}`;
 $('#sessionRole').textContent = `${role} / ENCRYPTED`;
@@ -68,6 +70,9 @@ function responseText(data) {
   if (results.drafts?.length) return `Created ${results.drafts.length} campaign draft${results.drafts.length === 1 ? '' : 's'}.\n${results.drafts.map((draft) => draft.content || draft.title || '').join('\n\n')}`;
   if (results.task) return `Task ${results.task.status || 'updated'}${results.task.latest_update ? `: ${results.task.latest_update}` : '.'}`;
   if (results.published_post) return `Published to ${results.published_post.platform || 'the connected channel'}.`;
+  if (results.opened) return data?.objective || `Opening ${results.opened}…`;
+  if (results.launched) return data?.objective || `Launching ${results.launched}…`;
+  if (results.error) return `Sorry, I couldn't do that: ${results.error}`;
   return data?.recommended_next_step || data?.objective || 'Command completed.';
 }
 
@@ -78,21 +83,83 @@ function setCoreState(state, caption) {
   $('#streamState').textContent = state === 'idle' ? 'READY' : state.toUpperCase();
 }
 
+function stripMarkdown(text) {
+  return text
+    .replace(/```[\s\S]*?```/g, '')          // remove code blocks entirely
+    .replace(/`[^`]*`/g, '')                  // remove inline code
+    .replace(/\*\*([^*]+)\*\*/g, '$1')        // **bold** → plain
+    .replace(/\*([^*]+)\*/g, '$1')            // *italic* → plain
+    .replace(/_{1,2}([^_]+)_{1,2}/g, '$1')   // _italic_ / __bold__
+    .replace(/~~([^~]+)~~/g, '$1')            // ~~strikethrough~~
+    .replace(/^#{1,6}\s+/gm, '')              // headings
+    .replace(/^\s*[-*+]\s+/gm, '')            // bullet points
+    .replace(/^\s*\d+\.\s+/gm, '')            // numbered lists
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [link text](url) → text
+    .replace(/[|>{}[\]\\]/g, ' ')             // table pipes, blockquotes, brackets
+    .replace(/\n{2,}/g, '. ')                 // paragraph breaks → pause
+    .replace(/\n/g, ' ')                      // single newlines → space
+    .replace(/\s{2,}/g, ' ')                  // collapse whitespace
+    .trim();
+}
+
+// Split long text into sentence chunks — Chrome cuts off utterances > ~200 chars.
+function splitSentences(text) {
+  return text.match(/[^.!?।\n]{1,180}(?:[.!?।\n]|$)/g)?.map((s) => s.trim()).filter(Boolean) || [text];
+}
+
 async function speakReply(reply) {
   if (!('speechSynthesis' in window) || !reply) return;
   window.speechSynthesis.cancel();
   setCoreState('speaking', 'Delivering your response…');
-  await new Promise((resolve) => {
-    const utterance = new SpeechSynthesisUtterance(reply);
-    utterance.lang = 'en-IN';
-    utterance.rate = 1;
-    utterance.pitch = 1.05;
-    const safety = setTimeout(resolve, Math.max(5000, reply.length * 140));
-    const finish = () => { clearTimeout(safety); resolve(); };
-    utterance.onend = finish;
-    utterance.onerror = finish;
-    window.speechSynthesis.speak(utterance);
-  });
+
+  // Pause mic so JARVIS voice doesn't feed back into recognition.
+  const wasMicActive = typeof speechRecognizer !== 'undefined' && !!speechRecognizer;
+  if (wasMicActive) { try { speechRecognizer.stop(); } catch (_) {} }
+
+  const clean = stripMarkdown(reply);
+
+  // Auto-detect Telugu script in the reply — if Telugu characters found, speak Telugu.
+  const hasTeluguScript = /[ఀ-౿]/.test(clean);
+  const lang = hasTeluguScript ? 'te-IN' : (typeof voiceLang !== 'undefined' ? voiceLang : 'en-IN');
+
+  // Load voices — some browsers need a short wait for the list to populate.
+  let voices = window.speechSynthesis.getVoices();
+  if (!voices.length) {
+    await new Promise((res) => { window.speechSynthesis.onvoiceschanged = res; setTimeout(res, 1000); });
+    voices = window.speechSynthesis.getVoices();
+  }
+
+  const voice = voices.find((v) => v.lang === lang)
+    || voices.find((v) => v.lang.startsWith(lang.split('-')[0]))
+    || null;
+
+  // Speak sentence by sentence to avoid Chrome's cut-off bug.
+  for (const chunk of splitSentences(clean)) {
+    await new Promise((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(chunk);
+      utterance.lang = lang;
+      if (voice) utterance.voice = voice;
+      utterance.rate = 0.92;
+      utterance.pitch = 1.05;
+      const safety = setTimeout(resolve, Math.max(3000, chunk.length * 120));
+      const finish = () => { clearTimeout(safety); resolve(); };
+      utterance.onend = finish;
+      utterance.onerror = finish;
+      window.speechSynthesis.speak(utterance);
+    });
+  }
+
+  setCoreState('listening', 'Voice session active — waiting for your command…');
+
+  // Resume mic after speaking — reset lastResultIndex so stale results are skipped.
+  if (wasMicActive && speechRecognizer) {
+    setTimeout(() => {
+      if (speechRecognizer) {
+        speechRecognizer._resetIndex = true; // signal onresult to reset lastResultIndex
+        try { speechRecognizer.start(); } catch (_) {}
+      }
+    }, 500);
+  }
 }
 
 async function sendCommand(message, spokenInput = false) {
@@ -124,15 +191,66 @@ async function sendCommand(message, spokenInput = false) {
   }
 }
 
-$('#commandForm').addEventListener('submit', (event) => { event.preventDefault(); sendCommand(); });
+// --- System / media command router ---
+// URLs are opened directly in the browser (window.open) — no backend round-trip needed.
+// App launches go through the backend because the browser can't spawn native processes.
+async function launchApp(appName) {
+  try {
+    const resp = await api('/api/system/action', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'open_app', payload: appName }),
+    });
+    return resp.ok;
+  } catch (_) { return false; }
+}
+
+function openTab(url) {
+  // Use location.href on same tab to avoid popup blocker; open in new tab as fallback.
+  const a = document.createElement('a');
+  a.href = url; a.target = '_blank'; a.rel = 'noopener';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+// tryLocalCommand always returns false — all commands go through the agent,
+// which calls open_system_url server-side (webbrowser.open) so popup blockers
+// can't interfere. Keeping this as a no-op so call sites don't break.
+async function tryLocalCommand(_text) {
+  return false;
+}
+
+$('#commandForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const text = $('#input').value.trim();
+  if (text && await tryLocalCommand(text)) { $('#input').value = ''; return; }
+  sendCommand();
+});
 $('#input').addEventListener('input', () => {
-  if ($('#input').value.trim()) setCoreState('listening', 'Go on, I’m listening.');
+  if ($('#input').value.trim()) setCoreState('listening', 'Go on, I\'m listening.');
   else setCoreState('idle', 'Awaiting your command.');
 });
 
+// --- Language toggle: English ↔ Telugu ---
+const langToggleBtn = document.createElement('button');
+langToggleBtn.type = 'button';
+langToggleBtn.className = 'tool-btn';
+langToggleBtn.textContent = 'EN';
+langToggleBtn.title = 'Switch voice language between English and Telugu';
+langToggleBtn.addEventListener('click', () => {
+  voiceLang = voiceLang === 'en-IN' ? 'te-IN' : 'en-IN';
+  langToggleBtn.textContent = voiceLang === 'en-IN' ? 'EN' : 'TE';
+  langToggleBtn.style.color = voiceLang === 'te-IN' ? 'var(--amber, #f59e0b)' : '';
+  if (speechRecognizer) {
+    // Restart recognizer with new language mid-session.
+    try { speechRecognizer.stop(); } catch (_) {}
+  }
+  addMessage('JARVIS', voiceLang === 'te-IN'
+    ? 'తెలుగు వాయిస్ ఇన్‌పుట్ ఎనేబుల్ అయింది. మీరు తెలుగులో మాట్లాడవచ్చు.'
+    : 'Switched to English voice input.');
+});
+$('.command-tools').appendChild(langToggleBtn);
+
 // --- Voice input: click to activate, 3-minute session, auto-sleep on silence ---
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let speechRecognizer = null;
 let voiceSessionTimer = null;   // 3-minute auto-sleep timer
 let voiceCountdownInterval = null;
 const VOICE_SESSION_MS = 3 * 60 * 1000; // 3 minutes
@@ -151,7 +269,8 @@ function stopVoiceSession(reason) {
   $('#micBtn').classList.remove('recording');
   $('#micBtn').textContent = '◉ Voice input';
   $('#voiceUnsupported').textContent = reason || '';
-  if (!reason) setCoreState('idle', 'Voice session ended. Click to reactivate.');
+  $('#input').value = '';
+  setCoreState('idle', 'Voice session ended. Click to reactivate.');
 }
 
 function startListeningCycle() {
@@ -170,28 +289,62 @@ function startVoiceSession() {
   }
 
   // Build recognizer once per session; restart it on each onend cycle.
+  let pendingTranscript = '';
+  let submitTimer = null;
+  const SUBMIT_DELAY_MS = 4000; // wait 4 s after last speech before sending
+
   speechRecognizer = new SpeechRecognition();
-  speechRecognizer.lang = 'en-IN';
-  speechRecognizer.interimResults = false;
+  speechRecognizer.lang = voiceLang;
+  speechRecognizer.interimResults = true;  // capture partial results so we can show them
   speechRecognizer.maxAlternatives = 1;
-  speechRecognizer.continuous = false; // restart manually so we control the loop
+  speechRecognizer.continuous = true;      // keep mic open; we control submission timing
 
   speechRecognizer.onstart = () => {
     $('#micBtn').classList.add('recording');
     $('#voiceReplyToggle').checked = true;
-    setCoreState('listening', 'Listening… Speak your command.');
+    setCoreState('listening', 'Listening… finish speaking, I will wait.');
     $('#voiceUnsupported').textContent = '';
+    $('#input').value = '';
   };
 
+  let lastResultIndex = 0; // track where we left off to avoid re-accumulating old results
+
   speechRecognizer.onresult = (event) => {
-    const result = event.results[event.resultIndex] || event.results[event.results.length - 1];
-    const transcript = result?.[0]?.transcript?.trim();
-    if (transcript) {
-      // Reset the 3-minute idle timer on each spoken command.
+    // After speaking a reply the mic restarts — skip everything said before that point.
+    if (speechRecognizer._resetIndex) {
+      lastResultIndex = event.results.length;
+      speechRecognizer._resetIndex = false;
+      return;
+    }
+    // Only accumulate NEW results since the last submission.
+    let full = '';
+    for (let i = lastResultIndex; i < event.results.length; i++) {
+      full += (event.results[i][0]?.transcript || '');
+    }
+    pendingTranscript = full.trim();
+    $('#input').value = pendingTranscript;
+    setCoreState('listening', 'Got it… keep going or wait 4 seconds.');
+
+    // Reset the 4-second submit timer on every new word.
+    clearTimeout(submitTimer);
+    submitTimer = setTimeout(async () => {
+      const text = pendingTranscript;
+      pendingTranscript = '';
+      $('#input').value = '';
+      submitTimer = null;
+      if (!text) return;
+
+      // Advance the index so next onresult doesn't re-include what we just sent.
+      lastResultIndex = event.results.length;
+
+      // Reset the 3-minute idle timer.
       clearTimeout(voiceSessionTimer);
       voiceSessionTimer = setTimeout(() => stopVoiceSession('Voice session timed out after 3 minutes of no activity.'), VOICE_SESSION_MS);
-      sendCommand(transcript, true);
-    }
+
+      // Route locally if it's a media/system command; otherwise send to agent.
+      const handled = await tryLocalCommand(text);
+      if (!handled) sendCommand(text, true);
+    }, SUBMIT_DELAY_MS);
   };
 
   speechRecognizer.onerror = (event) => {
@@ -208,10 +361,8 @@ function startVoiceSession() {
   };
 
   speechRecognizer.onend = () => {
-    // Restart listening automatically unless the session was stopped.
-    if (speechRecognizer) {
-      setTimeout(startListeningCycle, 200);
-    }
+    // continuous mode — only restart if an unexpected drop; session stop sets speechRecognizer = null first.
+    if (speechRecognizer) setTimeout(startListeningCycle, 200);
   };
 
   // Start the 3-minute auto-sleep timer.
@@ -238,7 +389,13 @@ $('#micBtn').addEventListener('click', () => {
   }
 });
 
-if (!('speechSynthesis' in window)) $('#voiceReplyToggle').disabled = true;
+if (!('speechSynthesis' in window)) {
+  $('#voiceReplyToggle').disabled = true;
+} else {
+  // Pre-load voice list — Chrome loads voices async on first call.
+  window.speechSynthesis.getVoices();
+  window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+}
 
 window.jarvisUniverse = new Universe($('#universe'));
 window.jarvisCore = new JarvisCore($('#core-viewport'));

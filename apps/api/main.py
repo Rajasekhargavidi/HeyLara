@@ -394,6 +394,60 @@ def linkedin_oauth_callback(code: str = "", state: str = "", error: str = "", er
     return PlainTextResponse(body)
 
 
+class SystemActionRequest(BaseModel):
+    action: str   # "open_url" | "open_app" | "search_google" | "search_youtube" | "open_spotify"
+    payload: str  # URL, app name, or search query
+
+
+@app.post("/api/system/action")
+def system_action(req: SystemActionRequest, user: CurrentUser = Depends(get_current_user)) -> dict:
+    """Execute a safe local system action — open URLs or apps on the host machine."""
+    import subprocess
+    import sys
+
+    action = req.action.lower().strip()
+    payload = req.payload.strip()
+
+    if action == "open_url":
+        target = payload
+    elif action == "search_google":
+        from urllib.parse import quote_plus
+        target = f"https://www.google.com/search?q={quote_plus(payload)}"
+    elif action == "search_youtube":
+        from urllib.parse import quote_plus
+        target = f"https://www.youtube.com/results?search_query={quote_plus(payload)}"
+    elif action == "open_spotify":
+        from urllib.parse import quote_plus
+        target = f"https://open.spotify.com/search/{quote_plus(payload)}"
+    elif action == "open_app":
+        # Safe allow-list of apps that can be launched.
+        allowed = {
+            "notepad": "notepad.exe", "calculator": "calc.exe",
+            "paint": "mspaint.exe", "explorer": "explorer.exe",
+            "chrome": "chrome.exe", "edge": "msedge.exe",
+        }
+        app_key = payload.lower().strip()
+        exe = allowed.get(app_key)
+        if not exe:
+            raise HTTPException(status_code=400, detail=f"App '{payload}' is not in the allowed list.")
+        try:
+            subprocess.Popen([exe], shell=True)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
+        return {"ok": True, "action": action, "payload": payload}
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown action '{action}'.")
+
+    # Open URL via the default browser — webbrowser handles quoting/escaping on all platforms.
+    try:
+        import webbrowser
+        webbrowser.open(target)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {"ok": True, "action": action, "target": target}
+
+
 web_dir = REPO_ROOT / "apps" / "web"
 if web_dir.exists():
     app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="web")

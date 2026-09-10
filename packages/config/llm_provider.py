@@ -127,13 +127,14 @@ class GroqProvider:
     embedding model.
     """
 
-    # Best → fallback order.  All free-tier, ranked by capability.
+    # Best → fallback order, verified against the live Groq /v1/models endpoint.
     FALLBACK_CHAIN: list[str] = [
-        "llama-3.3-70b-versatile",
-        "llama-3.1-70b-versatile",
-        "mixtral-8x7b-32768",
-        "llama-3.1-8b-instant",
-        "llama3-8b-8192",
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.8-27b",
+        "qwen/qwen3.6-27b",
+        "groq/compound",
+        "groq/compound-mini",
     ]
     # Seconds before a rate-limited model is retried (Groq resets per minute).
     RATE_LIMIT_TTL: int = 65

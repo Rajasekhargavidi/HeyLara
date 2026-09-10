@@ -46,6 +46,10 @@ SYSTEM_PROMPT = (
     "short and natural, not stiff or robotic. This tone applies to how you phrase "
     "things, never to the facts themselves — the accuracy rules below are absolute "
     "regardless of tone. "
+    "LANGUAGE RULE — critical: detect the language of the user's message and reply "
+    "in exactly that same language. If the user writes or speaks in Telugu, reply "
+    "fully in Telugu script (తెలుగు). If in English, reply in English. Never mix "
+    "languages in a single reply unless the user themselves mixed them. "
     "Understand the goal, and call the right tool to accomplish it. "
     "Only call a tool when the user is asking for an action this system can "
     "actually perform (creating/approving/publishing social content, "
@@ -65,7 +69,18 @@ SYSTEM_PROMPT = (
     "draft_customer_reply already grounds its answer in company knowledge. "
     "For a CEO/executive summary across the whole business, use generate_report. "
     "To ping an employee with a task or check on one, use assign_employee_task, "
-    "request_employee_status_update, or list_employee_tasks."
+    "request_employee_status_update, or list_employee_tasks. "
+    "MEDIA & SYSTEM ACTIONS — critical: when the user asks to play a song, play music, "
+    "open Spotify, play a video, open YouTube, search Google, open Facebook, open a website, "
+    "or open any app (notepad, calculator, etc.), you MUST call the open_system_url tool "
+    "immediately — never just describe what you would do. "
+    "Examples: 'play Shape of You' → open_system_url(action='play_spotify', query='Shape of You'); "
+    "'play despacito on youtube' → open_system_url(action='play_youtube', query='despacito'); "
+    "'open google' → open_system_url(action='open_url', url='https://www.google.com'); "
+    "'open facebook' → open_system_url(action='open_url', url='https://www.facebook.com'); "
+    "'search cat videos' → open_system_url(action='search_google', query='cat videos'); "
+    "'open notepad' → open_system_url(action='open_app', app='notepad'). "
+    "Telugu equivalents also apply: పాట వినాలి, వీడియో చూడాలి, గూగుల్ తెరువు etc."
 )
 
 _TOOLS = [
@@ -260,6 +275,38 @@ _TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "open_system_url",
+            "description": (
+                "Open a URL, app, or media on the user's machine. Use this whenever the user asks to: "
+                "play a song or music (Spotify), play a video (YouTube), search Google, open a website "
+                "(facebook.com, twitter.com, etc.), or open a local app (notepad, calculator, etc.). "
+                "Always call this tool immediately — never just say you will do it."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["play_spotify", "play_youtube", "search_google", "open_url", "open_app"],
+                        "description": (
+                            "play_spotify: search and play on Spotify. "
+                            "play_youtube: search and play on YouTube. "
+                            "search_google: Google search. "
+                            "open_url: open any URL directly. "
+                            "open_app: launch a local app."
+                        ),
+                    },
+                    "query": {"type": "string", "description": "Song name, video name, or search query (for play_spotify, play_youtube, search_google)"},
+                    "url": {"type": "string", "description": "Full URL to open (for open_url)"},
+                    "app": {"type": "string", "description": "App name: notepad, calculator, paint, explorer, chrome, edge (for open_app)"},
+                },
+                "required": ["action"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "generate_report",
             "description": (
                 "Generate the CEO/executive report: technology updates needing attention, "
@@ -276,6 +323,130 @@ _TOOLS = [
         },
     },
 ]
+
+
+def _get_youtube_first_video_id(query: str) -> str | None:
+    """Fetch the first video ID from a YouTube search without requiring an API key."""
+    import re
+    import urllib.request
+    from urllib.parse import quote_plus
+    try:
+        url = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        html = urllib.request.urlopen(req, timeout=6).read().decode("utf-8", errors="ignore")
+        match = re.search(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
+        return match.group(1) if match else None
+    except Exception:
+        return None
+
+
+def _run_open_system_url(db: Session, user: CurrentUser, args: dict) -> dict:
+    import webbrowser
+    import subprocess
+    from urllib.parse import quote_plus
+
+    action = args.get("action", "").strip()
+    query = args.get("query", "").strip()
+    url = args.get("url", "").strip()
+    app = args.get("app", "").strip().lower()
+
+    if action == "play_spotify":
+        # Use spotify: URI scheme so the desktop Spotify app opens directly and autoplays.
+        # Falls back to web player search if the app isn't installed.
+        spotify_uri = f"spotify:search:{query}"
+        web_url = f"https://open.spotify.com/search/{quote_plus(query)}"
+        try:
+            webbrowser.open(spotify_uri)
+        except Exception:
+            webbrowser.open(web_url)
+        return _structured(
+            objective=f"Playing on Spotify: {query}",
+            plan=["Open Spotify app via URI scheme"],
+            actions=["open_system_url"],
+            results={"opened": spotify_uri},
+            approvals_needed=[],
+            risks=[],
+            next_step="",
+        )
+    elif action == "play_youtube":
+        # Fetch the first YouTube video ID server-side so we can open a direct watch URL.
+        video_id = _get_youtube_first_video_id(query)
+        if video_id:
+            target = f"https://www.youtube.com/watch?v={video_id}&autoplay=1"
+            label = f"Playing on YouTube: {query}"
+        else:
+            target = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
+            label = f"Searching YouTube for: {query}"
+    elif action == "search_google":
+        target = f"https://www.google.com/search?q={quote_plus(query)}"
+        label = f"Searching Google for: {query}"
+    elif action == "open_url":
+        target = url or "https://www.google.com"
+        label = f"Opening: {target}"
+    elif action == "open_app":
+        allowed = {
+            "notepad": "notepad.exe", "calculator": "calc.exe",
+            "paint": "mspaint.exe", "explorer": "explorer.exe",
+            "chrome": "chrome.exe", "edge": "msedge.exe",
+        }
+        exe = allowed.get(app)
+        if not exe:
+            return _structured(
+                objective=f"Open app: {app}",
+                plan=[],
+                actions=[],
+                results={"error": f"App '{app}' is not in the allowed list"},
+                approvals_needed=[],
+                risks=[f"Only these apps can be opened: {', '.join(allowed)}"],
+                next_step="Try: notepad, calculator, paint, explorer, chrome, or edge.",
+            )
+        try:
+            subprocess.Popen([exe], shell=True)
+        except Exception as exc:
+            return _structured(
+                objective=f"Open {app}",
+                plan=[],
+                actions=[],
+                results={"error": str(exc)},
+                approvals_needed=[],
+                risks=["Failed to launch the app"],
+                next_step="Check that the app is installed.",
+            )
+        return _structured(
+            objective=f"Open {app}",
+            plan=[f"Launch {exe}"],
+            actions=["open_app"],
+            results={"launched": exe},
+            approvals_needed=[],
+            risks=[],
+            next_step="",
+        )
+    else:
+        target = url or "https://www.google.com"
+        label = f"Opening: {target}"
+
+    try:
+        webbrowser.open(target)
+    except Exception as exc:
+        return _structured(
+            objective=label,
+            plan=[],
+            actions=[],
+            results={"error": str(exc)},
+            approvals_needed=[],
+            risks=["Failed to open URL"],
+            next_step="",
+        )
+
+    return _structured(
+        objective=label,
+        plan=[f"Open {target} in the default browser"],
+        actions=["open_system_url"],
+        results={"opened": target},
+        approvals_needed=[],
+        risks=[],
+        next_step="",
+    )
 
 
 def _structured(objective: str, plan: list[str], actions: list[str], results: dict,
@@ -733,6 +904,7 @@ def _run_generate_report(db: Session, user: CurrentUser, args: dict) -> dict:
 
 
 _DISPATCH = {
+    "open_system_url": _run_open_system_url,
     "create_campaign": _run_create_campaign,
     "generate_report": _run_generate_report,
     "assign_employee_task": _run_assign_employee_task,
