@@ -62,6 +62,13 @@ class OllamaProvider:
         try:
             with request.urlopen(req, timeout=self.timeout) as resp:
                 return json.loads(resp.read())
+        except error.HTTPError as exc:
+            detail = exc.read().decode(errors="replace").strip()
+            raise RuntimeError(
+                f"Ollama returned HTTP {exc.code} for model={self.model}. "
+                f"Check the Ollama server logs and installation. "
+                f"Underlying error: {detail or exc.reason}"
+            ) from exc
         except error.URLError as exc:
             raise RuntimeError(
                 f"Could not reach Ollama at {self.base_url} (model={self.model}). "
@@ -69,14 +76,25 @@ class OllamaProvider:
             ) from exc
 
     def generate(self, prompt: str, system: str | None = None) -> str:
-        payload: dict[str, Any] = {"model": self.model, "prompt": prompt, "stream": False}
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_ctx": settings.ollama_num_ctx},
+        }
         if system:
             payload["system"] = system
         data = self._post("/api/generate", payload)
         return data.get("response", "")
 
     def generate_with_tools(self, messages: list[dict], tools: list[dict]) -> GenerateResult:
-        payload = {"model": self.model, "messages": messages, "tools": tools, "stream": False}
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+            "stream": False,
+            "options": {"num_ctx": settings.ollama_num_ctx},
+        }
         data = self._post("/api/chat", payload)
         message = data.get("message", {})
         raw_calls = message.get("tool_calls") or []

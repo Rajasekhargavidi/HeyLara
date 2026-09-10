@@ -1,11 +1,11 @@
-"""JARVIS Orchestrator — Phase 4 (Ollama-driven planning).
+"""Laraon Orchestrator — Phase 4 (Ollama-driven planning).
 
 Understands a request via the local LLM's tool-calling, delegates to a
 specialist agent, and returns a structured response. Intent routing is no
 longer keyword-based: the model chooses which tool (if any) to call from
 an explicit, allow-listed schema — it can never invoke anything outside
 this list, and every mutating tool is still role-checked before it reaches
-the Tool Registry. If the model doesn't choose a tool, JARVIS answers
+the Tool Registry. If the model doesn't choose a tool, Laraon answers
 directly (e.g. small talk, general questions) without touching any agent.
 """
 from __future__ import annotations
@@ -39,7 +39,7 @@ _CEO_REPORT_ROLES = {Role.ADMIN, Role.VIEWER}
 _EMPLOYEE_WRITE_ROLES = {Role.ADMIN}
 
 SYSTEM_PROMPT = (
-    "You are JARVIS, the central AI operating assistant for LaraVisionX. "
+    "You are Laraon, the central AI operating assistant for LaraVisionX. "
     "Talk like a warm, capable friend and colleague, not a formal report generator — "
     "casual, direct, a little conversational. Address the user like you'd talk to "
     "someone you work closely with and like. Keep small talk and direct answers "
@@ -382,7 +382,7 @@ def _run_generate_content_concepts(db: Session, user: CurrentUser, args: dict) -
         },
         approvals_needed=[],
         risks=["These are ideation concepts, not published content — no approval needed to view them"],
-        next_step="Ask JARVIS to turn one of these into an actual post draft if you want to publish it.",
+        next_step="Ask Laraon to turn one of these into an actual post draft if you want to publish it.",
     )
 
 
@@ -412,7 +412,7 @@ def _run_approve_and_publish(db: Session, user: CurrentUser, args: dict) -> dict
         results={"published_post": _published_to_dict(published)},
         approvals_needed=[],
         risks=["This is a MOCK publish — no real social account was touched"],
-        next_step="Ask JARVIS to 'show post metrics' to see DEMO DATA analytics.",
+        next_step="Ask Laraon to 'show post metrics' to see DEMO DATA analytics.",
     )
 
 
@@ -497,7 +497,7 @@ def _run_get_technology_briefing(db: Session, user: CurrentUser, args: dict) -> 
         approvals_needed=[],
         risks=["Item summaries are LLM-generated from search snippets — verify anything important before acting on it"]
         if updates else ["No technology updates stored yet"],
-        next_step="Ask JARVIS to 'research today's AI and Playwright updates' to refresh with a live web search."
+        next_step="Ask Laraon to 'research today's AI and Playwright updates' to refresh with a live web search."
         if not args.get("refresh") else "Review HIGH-rank items first.",
     )
 
@@ -561,7 +561,7 @@ def _run_list_customer_messages(db: Session, user: CurrentUser, args: dict) -> d
         results={"messages": [_message_to_dict(m) for m in messages]},
         approvals_needed=[],
         risks=["Messages are DEMO DATA sample conversations, not real social accounts"],
-        next_step="Ask JARVIS to 'draft a reply to message <id>'.",
+        next_step="Ask Laraon to 'draft a reply to message <id>'.",
     )
 
 
@@ -582,7 +582,7 @@ def _run_draft_customer_reply(db: Session, user: CurrentUser, args: dict) -> dic
         risks=["Escalated: this needs a human response, do not auto-send"] if escalated else
               ["Draft is grounded in company knowledge but should be reviewed before sending"],
         next_step="A human must handle this directly (see Customer Inbox)." if escalated else
-                   f"Ask JARVIS to 'send reply to message {message_id}' to send it.",
+                   f"Ask Laraon to 'send reply to message {message_id}' to send it.",
     )
 
 
@@ -672,7 +672,7 @@ def _run_assign_employee_task(db: Session, user: CurrentUser, args: dict) -> dic
         results={"task": _task_to_dict(task)},
         approvals_needed=[],
         risks=["This is a simulated/demo channel send"] if task.is_demo_data else [],
-        next_step=f"Ask JARVIS to 'request a status update on task {task.id}' later.",
+        next_step=f"Ask Laraon to 'request a status update on task {task.id}' later.",
     )
 
 
@@ -703,7 +703,7 @@ def _run_list_employee_tasks(db: Session, user: CurrentUser, args: dict) -> dict
         results={"tasks": [_task_to_dict(t) for t in tasks]},
         approvals_needed=[],
         risks=[],
-        next_step="Ask JARVIS to assign a new task or request a status update on an existing one.",
+        next_step="Ask Laraon to assign a new task or request a status update on an existing one.",
     )
 
 
@@ -768,7 +768,7 @@ def _fallback_answer(text: str) -> dict:
         results={"answer": answer},
         approvals_needed=[],
         risks=["Direct LLM answers are not grounded in company knowledge (RAG lands in Phase 5)"],
-        next_step="Ask JARVIS to create a campaign, list approvals, approve a draft, or show metrics.",
+        next_step="Ask Laraon to create a campaign, list approvals, approve a draft, or show metrics.",
     )
 
 
@@ -792,7 +792,7 @@ def handle_command(db: Session, user: CurrentUser, text: str) -> dict:
                 results={"answer": result.text.strip()},
                 approvals_needed=[],
                 risks=["Direct LLM answers are not grounded in company knowledge (RAG lands in Phase 5)"],
-                next_step="Ask JARVIS to create a campaign, list approvals, approve a draft, or show metrics.",
+                next_step="Ask Laraon to create a campaign, list approvals, approve a draft, or show metrics.",
             )
         return _fallback_answer(text)
 

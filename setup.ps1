@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  One-command setup for JARVIS on a new Windows machine — no Docker needed.
+  One-command setup for Laraon on a new Windows machine — no Docker needed.
 
   Run this after cloning the repo:
       git clone https://github.com/Rajasekhargavidi/HeyLara.git jarvis
@@ -79,6 +79,6 @@ ollama pull nomic-embed-text
 
 # --- 6. Done ---
 Write-Step "Setup complete"
-Write-Host "Starting JARVIS at http://localhost:8000 ..." -ForegroundColor Green
+Write-Host "Starting Laraon at http://localhost:8000 ..." -ForegroundColor Green
 Write-Host "Press Ctrl+C to stop.`n"
 & $venvPython -m uvicorn apps.api.main:app --port 8000

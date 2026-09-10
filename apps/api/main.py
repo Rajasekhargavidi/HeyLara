@@ -1,4 +1,4 @@
-"""JARVIS API — Phase 2 (auth + persistence).
+"""Laraon API — Phase 2 (auth + persistence).
 
 Adds local JWT/session auth and Postgres/SQLite-backed persistence on top
 of Phase 1's chat -> Orchestrator -> Agent -> Tool Registry loop.
@@ -53,7 +53,7 @@ logger = logging.getLogger("jarvis.api")
 
 bootstrap_tools()
 
-app = FastAPI(title="LaraVisionX JARVIS API", version="0.2.0-phase2")
+app = FastAPI(title="LaraVisionX Laraon API", version="0.2.0-phase2")
 
 app.add_middleware(
     CORSMiddleware,
@@ -363,7 +363,7 @@ def linkedin_oauth_start(user: CurrentUser = Depends(get_current_user)) -> dict:
 @app.get("/api/oauth/linkedin/callback")
 def linkedin_oauth_callback(code: str = "", state: str = "", error: str = "", error_description: str = "") -> PlainTextResponse:
     # This endpoint is hit by LinkedIn's own redirect, not by a logged-in
-    # JARVIS user — no Authorization header is available here. CSRF
+    # Laraon user — no Authorization header is available here. CSRF
     # protection instead comes from the one-time `state` value minted by
     # /api/oauth/linkedin/start and validated below.
     if error:
@@ -388,7 +388,7 @@ def linkedin_oauth_callback(code: str = "", state: str = "", error: str = "", er
         "Organizations this token can administer:\n"
         f"{org_lines}\n\n"
         "Next step: copy the LINKEDIN_ORG_URN line for LaraVisionX and the access token "
-        "above into your .env as LINKEDIN_ACCESS_TOKEN and LINKEDIN_ORG_URN, then restart JARVIS.\n"
+        "above into your .env as LINKEDIN_ACCESS_TOKEN and LINKEDIN_ORG_URN, then restart Laraon.\n"
         "This token is only shown once here — copy it now."
     )
     return PlainTextResponse(body)

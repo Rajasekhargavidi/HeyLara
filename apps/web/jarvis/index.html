@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#050a14">
+  <title>LaraVisionX · JARVIS Command Center</title>
+  <link rel="stylesheet" href="/jarvis/style.css">
+</head>
+<body>
+  <div id="universe" aria-hidden="true"></div>
+  <div class="scanlines" aria-hidden="true"></div>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="wordmark" href="/jarvis/index.html" aria-label="JARVIS command center">
+        <span class="wordmark-mark">J</span>
+        <span><b>LARAVISIONX</b><small>JARVIS COMMAND CENTER</small></span>
+      </a>
+      <div class="topbar-status">
+        <span class="status-dot" id="systemDot"></span>
+        <span id="systemStatus">ESTABLISHING UPLINK</span>
+        <span class="divider"></span>
+        <span id="clock">--:--:--</span>
+      </div>
+      <div class="identity">
+        <span id="whoami">AUTHENTICATING…</span>
+        <button class="icon-btn" id="logoutBtn" type="button" title="Sign out">↗</button>
+      </div>
+    </header>
+
+    <main class="command-grid">
+      <aside class="rail panel-glass">
+        <div class="rail-label">COMMAND DECK</div>
+        <nav aria-label="Command center views">
+          <button class="item active" data-view="command" type="button"><span>◈</span> Command Center</button>
+          <button class="item" data-view="ceo" type="button"><span>◉</span> CEO Overview</button>
+          <button class="item" data-view="approvals" type="button"><span>◇</span> Approval Queue</button>
+          <button class="item" data-view="audit" type="button"><span>≋</span> Audit Log</button>
+          <button class="item" data-view="knowledge" type="button"><span>⌁</span> Company Knowledge</button>
+          <button class="item" data-view="technology" type="button"><span>✦</span> Technology Briefing</button>
+          <button class="item" data-view="customer" type="button"><span>◎</span> Customer Inbox</button>
+          <button class="item" data-view="leads" type="button"><span>⌖</span> Leads</button>
+          <button class="item" data-view="employee-tasks" type="button"><span>▣</span> Employee Tasks</button>
+        </nav>
+        <div class="rail-footer">
+          <div class="tiny-label">SECURE SESSION</div>
+          <div class="session-key"><span class="status-dot"></span><span id="sessionRole">—</span></div>
+        </div>
+      </aside>
+
+      <section class="stage">
+        <div class="stage-heading">
+          <div><span class="eyebrow">LARAON / NEURAL OPERATIONS</span><h1>Command Center</h1></div>
+          <div class="telemetry">
+            <span><i class="telemetry-line cyan"></i><b id="hudSignalText">CONNECTING</b> SIGNAL</span>
+            <span><i class="telemetry-line violet"></i><b id="hudMode">—</b> MODE</span>
+            <span><i class="telemetry-line amber"></i><b id="hudLlm">—</b> PROVIDER</span>
+          </div>
+        </div>
+
+        <section id="view-command" class="view active-view">
+          <div class="cinematic-layout">
+            <div class="reactor-panel panel-glass">
+              <div class="panel-kicker">CORE REACTOR <span id="orbState">IDLE</span></div>
+              <div id="core-viewport" class="core-viewport" aria-label="Animated JARVIS core"></div>
+              <div class="core-caption" id="orbCaption">Awaiting your command.</div>
+              <div class="core-readout"><span>COHERENCE</span><b id="coherence">98.4%</b><span>UPTIME</span><b id="uptime">00:00:00</b></div>
+            </div>
+            <div class="network-panel panel-glass">
+              <div class="panel-kicker">AGENT CONSTELLATION <span id="agentCount">07 ONLINE</span></div>
+              <div id="agent-viewport" class="agent-viewport" aria-label="Interactive agent constellation"></div>
+              <div class="agent-hint">SELECT A NODE TO INSPECT · DRAG TO ROTATE</div>
+              <div class="agent-detail" id="agentDetail">All operational agents are synchronized.</div>
+            </div>
+          </div>
+          <div class="lower-grid">
+            <section class="panel-glass command-panel">
+              <div class="panel-kicker">COMMAND STREAM <span id="streamState">READY</span></div>
+              <div class="chat-log" id="log" aria-live="polite">
+                <div class="msg jarvis"><span class="msg-mark">J</span><div><small>JARVIS · NOW</small><p>Good evening, Boss. All neural systems are online. What shall we accomplish?</p></div></div>
+              </div>
+              <form class="command-form" id="commandForm">
+                <span class="prompt">›</span><input id="input" autocomplete="off" placeholder="Ask JARVIS anything…" aria-label="Command input"><button type="submit" id="sendBtn">SEND <span>⏎</span></button>
+              </form>
+              <div class="command-tools"><button type="button" id="micBtn" class="tool-btn">◉ Voice input</button><label class="toggle"><input id="voiceReplyToggle" type="checkbox"><span></span> Voice reply</label><span id="voiceUnsupported" class="muted"></span></div>
+            </section>
+            <section class="panel-glass activity-panel">
+              <div class="panel-kicker">LIVE ACTIVITY <span class="pulse-label">● LIVE</span></div>
+              <div id="activityFeed" class="activity-feed"><div class="empty-state">Awaiting agent activity…</div></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="view-ceo" class="view"><h2>CEO Overview</h2><div id="ceoCards" class="metric-grid"></div><div id="ceoContent" class="data-panel"></div></section>
+        <section id="view-approvals" class="view"><h2>Approval Queue</h2><div class="banner">Review generated campaigns before they reach a channel.</div><div class="table-wrap"><table id="approvalsTable"><thead><tr><th>Channel</th><th>Draft</th><th>Created</th><th>Action</th></tr></thead><tbody><tr><td colspan="4">Loading approvals…</td></tr></tbody></table></div></section>
+        <section id="view-audit" class="view"><h2>Audit Log</h2><div class="table-wrap"><table id="auditTable"><thead><tr><th>Time</th><th>Actor</th><th>Tool</th><th>Result</th></tr></thead><tbody></tbody></table></div></section>
+        <section id="view-knowledge" class="view"><h2>Company Knowledge</h2><div class="ingest-bar"><input id="kTitle" placeholder="Document title"><input id="kFile" type="file"><select id="kRole"><option>VIEWER</option><option>MARKETING</option><option>ADMIN</option></select><button id="ingestBtn" type="button">INGEST</button></div><p id="kMsg" class="muted"></p><div class="table-wrap"><table id="knowledgeTable"><thead><tr><th>Title</th><th>Source</th><th>Access</th><th>Added</th></tr></thead><tbody></tbody></table></div></section>
+        <section id="view-technology" class="view"><h2>Technology Briefing</h2><button class="outline-btn" id="refreshBriefingBtn" type="button">RESEARCH LATEST UPDATES</button><div id="techList" class="card-list"></div></section>
+        <section id="view-customer" class="view"><h2>Customer Inbox</h2><div id="customerList" class="card-list"></div></section>
+        <section id="view-leads" class="view"><h2>Leads</h2><div class="table-wrap"><table id="leadsTable"><thead><tr><th>Name</th><th>Contact</th><th>Notes</th><th>Captured</th></tr></thead><tbody></tbody></table></div></section>
+        <section id="view-employee-tasks" class="view"><h2>Employee Tasks</h2><div class="task-compose"><select id="empSelect"></select><input id="taskDesc" placeholder="Task description"><select id="taskChannel"><option value="whatsapp">WhatsApp</option><option value="teams">Teams</option></select><button id="assignTaskBtn" type="button">ASSIGN TASK</button></div><p id="empMsg" class="muted"></p><div id="taskList" class="card-list"></div></section>
+      </section>
+    </main>
+  </div>
+  <script type="module" src="/jarvis/js/main.js"></script>
+</body>
+</html>

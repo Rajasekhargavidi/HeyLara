@@ -161,7 +161,7 @@ def build_ceo_report(db: Session, llm: LLMProvider, period: str = "weekly") -> d
     )
 
     system_prompt = (
-        "You are JARVIS writing the recommendations section of a CEO report for LaraVisionX. "
+        "You are Laraon writing the recommendations section of a CEO report for LaraVisionX. "
         "You are given ONLY confirmed numbers below — use ONLY these facts, do not invent any "
         "other numbers, customers, or outcomes. Do not claim a metric change was CAUSED by any "
         "specific action unless the facts explicitly say so. If a number is 0 or missing, say so "
