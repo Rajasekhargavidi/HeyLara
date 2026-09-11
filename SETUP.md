@@ -1,4 +1,4 @@
-# Setting up JARVIS on a new machine
+# Setting up Laraon on a new machine
 
 Two ways to run this. **Use Option A** unless you already know Docker
 works on your machine — see why below.
@@ -39,18 +39,37 @@ LinkedIn/Meta for real social posting, etc.): open the `.env` file that
 was created and fill in the relevant values, then restart
 (`.\setup.ps1` again, or just re-run the last `uvicorn` command it printed).
 
-## Option B: Docker Compose (available, not verified on a managed laptop)
+## Option B: Docker Compose (recommended for multiple machines)
 
-```bash
-git clone https://github.com/Rajasekhargavidi/HeyLara.git jarvis
-cd jarvis
-docker compose up --build
+On each machine, install [Docker Desktop](https://www.docker.com/products/docker-desktop/), start it, then run:
+
+```powershell
+git clone https://github.com/Rajasekhargavidi/HeyLara.git laraon
+cd laraon
+.\docker-setup.ps1
 ```
 
-`docker-compose.yml` is set up to work with zero configuration (safe
-defaults baked in — demo mode, local Ollama) and auto-pulls the required
-Ollama models via an init step, so in principle this is also a genuine
-"clone and run" path.
+The script builds the API, starts PostgreSQL, Redis, and Ollama, automatically
+downloads the Qwen and embedding models, waits for the health endpoint, and
+opens Laraon at **http://localhost:8000**. No Python, Ollama, or `.env` file is
+needed on the host.
+
+The Compose file uses container-safe defaults even if a host `.env` already
+exists. To use optional cloud credentials, export them before starting:
+
+```powershell
+$env:GROQ_API_KEY = "your-key"
+$env:LLM_PROVIDER = "groq"
+.\docker-setup.ps1
+```
+
+Useful commands:
+
+```powershell
+docker compose logs -f api
+docker compose ps
+docker compose down
+```
 
 **Known issue on Deloitte-managed laptops**: Docker Desktop on Windows
 requires WSL2 (or Hyper-V), and this environment's WSL is disabled by
@@ -63,7 +82,8 @@ validated (`docker compose config`), but the actual container build/run
 has **not** been verified end-to-end here for that reason.
 
 If you're on a personal machine or one without that policy, Docker should
-work fine and gives you Postgres instead of SQLite by default.
+work fine and gives you PostgreSQL instead of SQLite by default. Each machine
+has its own persistent database and Ollama model volume.
 
 ## What does NOT sync between machines
 
@@ -89,6 +109,6 @@ never committed to git (see `.gitignore`):
   local Ollama model (`LLM_PROVIDER=ollama`, the default). Get a free key
   from https://console.groq.com/keys, add it to `.env` as `GROQ_API_KEY`,
   set `LLM_PROVIDER=groq`, and restart — replies drop to under 2 seconds.
-- **Port 8000 already in use** — another JARVIS instance (or something
+- **Port 8000 already in use** — another Laraon instance (or something
   else) is already running on that port. Stop it, or edit the port in the
   final `uvicorn` line of `setup.ps1`.

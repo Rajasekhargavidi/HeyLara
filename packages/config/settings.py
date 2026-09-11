@@ -19,6 +19,7 @@ class Settings:
     jarvis_mode: str = os.getenv("JARVIS_MODE", "demo")
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
     ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+    ollama_num_ctx: int = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
     ollama_embed_model: str = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
     # --- LLM provider selection ---

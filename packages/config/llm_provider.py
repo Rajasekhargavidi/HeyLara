@@ -62,6 +62,13 @@ class OllamaProvider:
         try:
             with request.urlopen(req, timeout=self.timeout) as resp:
                 return json.loads(resp.read())
+        except error.HTTPError as exc:
+            detail = exc.read().decode(errors="replace").strip()
+            raise RuntimeError(
+                f"Ollama returned HTTP {exc.code} for model={self.model}. "
+                f"Check the Ollama server logs and installation. "
+                f"Underlying error: {detail or exc.reason}"
+            ) from exc
         except error.URLError as exc:
             raise RuntimeError(
                 f"Could not reach Ollama at {self.base_url} (model={self.model}). "
@@ -69,14 +76,25 @@ class OllamaProvider:
             ) from exc
 
     def generate(self, prompt: str, system: str | None = None) -> str:
-        payload: dict[str, Any] = {"model": self.model, "prompt": prompt, "stream": False}
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_ctx": settings.ollama_num_ctx},
+        }
         if system:
             payload["system"] = system
         data = self._post("/api/generate", payload)
         return data.get("response", "")
 
     def generate_with_tools(self, messages: list[dict], tools: list[dict]) -> GenerateResult:
-        payload = {"model": self.model, "messages": messages, "tools": tools, "stream": False}
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+            "stream": False,
+            "options": {"num_ctx": settings.ollama_num_ctx},
+        }
         data = self._post("/api/chat", payload)
         message = data.get("message", {})
         raw_calls = message.get("tool_calls") or []
@@ -97,6 +115,11 @@ class GroqProvider:
     tier as of writing). Much larger/faster models than a local 3B model,
     at the cost of no longer being fully offline.
 
+    Model fallback: when a model hits its rate limit (HTTP 429) the provider
+    automatically tries the next model in the fallback chain. Each model
+    remembers when it was rate-limited and will be retried after RATE_LIMIT_TTL
+    seconds so the chain always prefers the best available model.
+
     Embeddings always go through OllamaProvider regardless of this class —
     Groq doesn't offer an embeddings endpoint, and even if it did, mixing
     embedding spaces would silently break similarity search against
@@ -104,15 +127,86 @@ class GroqProvider:
     embedding model.
     """
 
+    # Best → fallback order, verified against the live Groq /v1/models endpoint.
+    FALLBACK_CHAIN: list[str] = [
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.8-27b",
+        "qwen/qwen3.6-27b",
+        "groq/compound",
+        "groq/compound-mini",
+    ]
+    # Seconds before a rate-limited model is retried (Groq resets per minute).
+    RATE_LIMIT_TTL: int = 65
+
+    import time as _time
+
+    _rate_limited_until: dict[str, float] = {}
+
     def __init__(self, api_key: str | None = None, model: str | None = None, timeout: float = 60.0) -> None:
+        import time
         self.api_key = api_key or settings.groq_api_key
-        self.model = model or settings.groq_model
+        self._preferred_model = model or settings.groq_model
         self.timeout = timeout
         self._embed_provider = OllamaProvider()
+        self._time = time
         if not self.api_key:
             raise RuntimeError("GROQ_API_KEY is not set — get a free key at https://console.groq.com/keys")
+        # Ensure the configured model is first in the chain if not already present.
+        chain = list(self.FALLBACK_CHAIN)
+        if self._preferred_model not in chain:
+            chain.insert(0, self._preferred_model)
+        self._chain = chain
+
+    @property
+    def model(self) -> str:
+        """Return the best model not currently rate-limited."""
+        now = self._time.time()
+        for m in self._chain:
+            if GroqProvider._rate_limited_until.get(m, 0) <= now:
+                return m
+        # All models are rate-limited — return the one whose cooldown expires soonest.
+        return min(self._chain, key=lambda m: GroqProvider._rate_limited_until.get(m, 0))
+
+    def _mark_rate_limited(self, model: str) -> None:
+        GroqProvider._rate_limited_until[model] = self._time.time() + self.RATE_LIMIT_TTL
 
     def _post(self, payload: dict) -> dict:
+        """Try each model in the fallback chain until one succeeds."""
+        tried: list[str] = []
+        for m in self._chain:
+            if GroqProvider._rate_limited_until.get(m, 0) > self._time.time():
+                continue
+            payload = {**payload, "model": m}
+            body = json.dumps(payload).encode()
+            req = request.Request(
+                "https://api.groq.com/openai/v1/chat/completions",
+                data=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}",
+                    "User-Agent": "Mozilla/5.0 (compatible; JARVIS/1.0; +https://laravisionx.com)",
+                },
+                method="POST",
+            )
+            try:
+                with request.urlopen(req, timeout=self.timeout) as resp:
+                    return json.loads(resp.read())
+            except error.HTTPError as exc:
+                if exc.code == 429:
+                    self._mark_rate_limited(m)
+                    tried.append(m)
+                    continue
+                raise RuntimeError(f"Groq API error {exc.code}: {exc.read().decode(errors='replace')}") from exc
+            except error.URLError as exc:
+                raise RuntimeError(f"Could not reach Groq API: {exc}") from exc
+
+        # All models rate-limited — wait for the soonest reset and retry once.
+        soonest = min(self._chain, key=lambda m: GroqProvider._rate_limited_until.get(m, 0))
+        wait = max(0.0, GroqProvider._rate_limited_until.get(soonest, 0) - self._time.time())
+        self._time.sleep(wait + 1)
+        GroqProvider._rate_limited_until.pop(soonest, None)
+        payload = {**payload, "model": soonest}
         body = json.dumps(payload).encode()
         req = request.Request(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -120,9 +214,6 @@ class GroqProvider:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.api_key}",
-                # Groq's Cloudflare front-end blocks the default Python
-                # urllib User-Agent as a bot signature (error 1010) —
-                # a normal-looking UA is required, not optional.
                 "User-Agent": "Mozilla/5.0 (compatible; JARVIS/1.0; +https://laravisionx.com)",
             },
             method="POST",
@@ -131,17 +222,17 @@ class GroqProvider:
             with request.urlopen(req, timeout=self.timeout) as resp:
                 return json.loads(resp.read())
         except error.HTTPError as exc:
-            raise RuntimeError(f"Groq API error {exc.code}: {exc.read().decode(errors='replace')}") from exc
+            raise RuntimeError(f"Groq API error {exc.code} (all models rate-limited): {exc.read().decode(errors='replace')}") from exc
         except error.URLError as exc:
             raise RuntimeError(f"Could not reach Groq API: {exc}") from exc
 
     def generate(self, prompt: str, system: str | None = None) -> str:
         messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
-        data = self._post({"model": self.model, "messages": messages})
+        data = self._post({"messages": messages})
         return data["choices"][0]["message"].get("content", "")
 
     def generate_with_tools(self, messages: list[dict], tools: list[dict]) -> GenerateResult:
-        data = self._post({"model": self.model, "messages": messages, "tools": tools})
+        data = self._post({"messages": messages, "tools": tools})
         message = data["choices"][0]["message"]
         raw_calls = message.get("tool_calls") or []
         tool_calls = []

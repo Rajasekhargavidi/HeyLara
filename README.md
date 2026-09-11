@@ -1,4 +1,4 @@
-# LaraVisionX JARVIS — Real LLM + Real Knowledge
+# LaraVisionX Laraon — Real LLM + Real Knowledge
 
 A private multi-agent AI operating assistant for LaraVisionX. This update
 moves JARVIS off the tiny local model onto a free, fast, capable cloud LLM
@@ -28,6 +28,10 @@ primary path, here).
 `.env` and `jarvis.db` are intentionally per-machine and never committed
 to git — SETUP.md covers what that means for keeping data/config in sync
 across machines.
+
+For Docker-based installation on multiple machines, clone the repository and
+run `.\docker-setup.ps1`. It provisions PostgreSQL, Redis, Ollama, the Qwen
+model, and the API with persistent Docker volumes; see [SETUP.md](SETUP.md).
 
 ## Voice: wake-word session mode
 

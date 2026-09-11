@@ -1,4 +1,4 @@
-"""JARVIS API — Phase 2 (auth + persistence).
+"""Laraon API — Phase 2 (auth + persistence).
 
 Adds local JWT/session auth and Postgres/SQLite-backed persistence on top
 of Phase 1's chat -> Orchestrator -> Agent -> Tool Registry loop.
@@ -53,7 +53,7 @@ logger = logging.getLogger("jarvis.api")
 
 bootstrap_tools()
 
-app = FastAPI(title="LaraVisionX JARVIS API", version="0.2.0-phase2")
+app = FastAPI(title="LaraVisionX Laraon API", version="0.2.0-phase2")
 
 app.add_middleware(
     CORSMiddleware,
@@ -363,7 +363,7 @@ def linkedin_oauth_start(user: CurrentUser = Depends(get_current_user)) -> dict:
 @app.get("/api/oauth/linkedin/callback")
 def linkedin_oauth_callback(code: str = "", state: str = "", error: str = "", error_description: str = "") -> PlainTextResponse:
     # This endpoint is hit by LinkedIn's own redirect, not by a logged-in
-    # JARVIS user — no Authorization header is available here. CSRF
+    # Laraon user — no Authorization header is available here. CSRF
     # protection instead comes from the one-time `state` value minted by
     # /api/oauth/linkedin/start and validated below.
     if error:
@@ -388,10 +388,64 @@ def linkedin_oauth_callback(code: str = "", state: str = "", error: str = "", er
         "Organizations this token can administer:\n"
         f"{org_lines}\n\n"
         "Next step: copy the LINKEDIN_ORG_URN line for LaraVisionX and the access token "
-        "above into your .env as LINKEDIN_ACCESS_TOKEN and LINKEDIN_ORG_URN, then restart JARVIS.\n"
+        "above into your .env as LINKEDIN_ACCESS_TOKEN and LINKEDIN_ORG_URN, then restart Laraon.\n"
         "This token is only shown once here — copy it now."
     )
     return PlainTextResponse(body)
+
+
+class SystemActionRequest(BaseModel):
+    action: str   # "open_url" | "open_app" | "search_google" | "search_youtube" | "open_spotify"
+    payload: str  # URL, app name, or search query
+
+
+@app.post("/api/system/action")
+def system_action(req: SystemActionRequest, user: CurrentUser = Depends(get_current_user)) -> dict:
+    """Execute a safe local system action — open URLs or apps on the host machine."""
+    import subprocess
+    import sys
+
+    action = req.action.lower().strip()
+    payload = req.payload.strip()
+
+    if action == "open_url":
+        target = payload
+    elif action == "search_google":
+        from urllib.parse import quote_plus
+        target = f"https://www.google.com/search?q={quote_plus(payload)}"
+    elif action == "search_youtube":
+        from urllib.parse import quote_plus
+        target = f"https://www.youtube.com/results?search_query={quote_plus(payload)}"
+    elif action == "open_spotify":
+        from urllib.parse import quote_plus
+        target = f"https://open.spotify.com/search/{quote_plus(payload)}"
+    elif action == "open_app":
+        # Safe allow-list of apps that can be launched.
+        allowed = {
+            "notepad": "notepad.exe", "calculator": "calc.exe",
+            "paint": "mspaint.exe", "explorer": "explorer.exe",
+            "chrome": "chrome.exe", "edge": "msedge.exe",
+        }
+        app_key = payload.lower().strip()
+        exe = allowed.get(app_key)
+        if not exe:
+            raise HTTPException(status_code=400, detail=f"App '{payload}' is not in the allowed list.")
+        try:
+            subprocess.Popen([exe], shell=True)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
+        return {"ok": True, "action": action, "payload": payload}
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown action '{action}'.")
+
+    # Open URL via the default browser — webbrowser handles quoting/escaping on all platforms.
+    try:
+        import webbrowser
+        webbrowser.open(target)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {"ok": True, "action": action, "target": target}
 
 
 web_dir = REPO_ROOT / "apps" / "web"
